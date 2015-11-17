@@ -1,0 +1,203 @@
+### preamble
+rm(list = ls())
+wd = 'C:\\Users\\KLN\\Documents\\DTL\\computerLab\\day2'
+dd = 'C:\\Users\\KLN\\Documents\\DTL\\computerLab\\day2\\data'
+setwd(wd)
+
+# packages
+library(tm)
+# if in doubt
+help(package=tm)
+
+# build corpus
+gcorpus  <- Corpus(DirSource(dd), readerControl = list(language="lat"))
+gcorpus
+names(gcorpus)# subsets: documents
+gcorpus[1]# subset 1: document 1
+gcorpus[[1]]# access subset 1
+gcorpus[[1]][1]# content
+gcorpus[[1]][2]# metadata
+# or
+gcorpus['Acts.txt']# subset 1: document 1
+gcorpus[['Acts.txt']]# access subset 1
+gcorpus[['Acts.txt']]$content# content
+gcorpus[['Acts.txt']]$meta# metadata
+# combined
+gcorpus[[1]]$meta$id# document name
+gcorpus[['Acts.txt']]$content[1:10]# lines
+# for more
+?Corpus
+
+# save corpus object
+save(gcorpus, file = "gcorpus.RData")
+rm(gcorpus)
+load("gcorpus.RData")
+# save workspace
+save.image(file = "gcorpusImage.RData")
+rm(list = ls())
+load("gcorpusImage.RData")
+
+# preprocess %%% check transformations
+gcorpus <- tm_map(gcorpus, removeNumbers)
+gcorpus <- tm_map(gcorpus, removePunctuation)
+gcorpus <- tm_map(gcorpus, content_transformer(tolower))
+  # %%% introduce nchar
+    # nchar(gcorpus, type = "chars", allowNA = FALSE, keepNA = NA)
+gcorpus <- tm_map(gcorpus, removeWords, stopwords("english"))
+  # %%% discuss stopword
+    # stopwords(kind = "en")
+gcorpus <- tm_map(gcorpus, stemDocument, language = "english")
+gcorpus <- tm_map(gcorpus, stripWhitespace)
+names(gcorpus)
+# plain text formatting for vectorization
+gcorpusPv <- tm_map(gcorpus, PlainTextDocument)
+
+# a little regex
+names(gcorpus) <- gsub("\\..*","",names(gcorpus))# match all '.' and 'any character' and replace with ''
+gcorpus[[1]][[2]][5]
+
+# dtm
+gcDtm <- DocumentTermMatrix(gcorpusPv)
+gcDtm
+colnames(gcDtm)
+rownames(gcDtm) <- names(gcorpus)
+# reduce dimensions by removing sparse entries
+gcDtm <- removeSparseTerms(gcDtm, 0.8)# maximal sparcity = one document
+inspect(gcDtm[,"god"])
+
+# frequent words and associations
+findFreqTerms(gcDtm["Matthew",], 100)
+findAssocs(gcDtm, "jesus", 0.93) 
+
+# tf-idf weighting
+  # %%% show weighting factors and schemes + link to normalization 
+gcDtmTfidf <- DocumentTermMatrix(gcorpusPv,control = list(weighting = function(x) weightTfIdf(x, normalize = FALSE)))
+  # alternatively
+  gcDtmTfidf2 <- weightTfIdf(gcDtm, normalize = FALSE)
+rownames(gcDtmTfidf) <- names(gcorpus)
+  #%%% what happened to god?
+  inspect(gcDtmTfidf[,"god"]) 
+# remove sparse items
+gcDtmTfidf <- removeSparseTerms(gcDtmTfidf, 0.6)# maximal sparcity = two documents
+
+
+
+########### DOCUMENT CLUSTERING
+
+shell.exec("https://cran.r-project.org/web/views/Cluster.html")
+
+### Centroid-based
+## quick-n-dirty k-means on euclidean distance*
+# for reproducibility 
+set.seed(1234)
+gcmatrix <- as.matrix(gcDtmTfidf)
+# length-normalize the vectors (Manning, p. 121)
+norm_eucl <- function(m) m/apply(m, MARGIN=1, FUN=function(x) sum(x^2)^.5)#
+  # %%% explain function object
+gcmatrixNorm <- norm_eucl(gcmatrix)
+
+load(file = "gcorpusImage.RData")
+
+# 2 sub-groups or clusters
+k = 2
+gccl <- kmeans(gcmatrixNorm, k)
+# inspect cluster object
+gccl
+# classification
+gccl$cluster
+# goodness of the classification
+  # %%% explain BSS/TSS
+as.numeric(gccl[6])/as.numeric(gccl[3])# c
+# plot clusters using the first 2 principal components
+plot(prcomp(gcmatrixNorm)$x, col=gccl$cl)
+text(prcomp(gcmatrixNorm)$x[,1],prcomp(gcmatrixNorm)$x[,2],rownames(gcmatrixNorm))
+# find frequent terms and associations in clusters 
+findFreqTerms(gcDtm[gccl$cluster == 1,], 50)
+findAssocs(gcDtm[gccl$cluster == 2,], "god", 0.95)# should only be used for larger corpora (not at all for one or two document clusters)
+
+## k-means more principled
+## deciding number of cluster k
+
+# graphical approach: plot of total within-groups sums of squares against number of k
+wssplot <- function(data, nc=15, seed=1234){
+  wss <- (nrow(data)-1)*sum(apply(data,2,var))
+  for (i in 2:nc){
+    set.seed(seed)
+    wss[i] <- sum(kmeans(data, centers=i)$withinss)}
+  plot(1:nc, wss, type="b", xlab="Number of Clusters",
+       ylab="Within groups sum of squares")}
+maxk = nrow(gcmatrixNorm)-1
+wssplot(gcmatrixNorm,nc = maxk) 
+
+# optimization: choose optimal k 
+#install.packages("NbClust")
+library(NbClust)
+set.seed(1234)
+numClust <- NbClust(gcmatrixNorm, min.nc=2, max.nc=4, method="kmeans")
+  # %%% explain curse of dimensionality (small sample and negative eigenvalues)
+table(numClust$Best.n[1,]) # jury
+
+
+
+
+
+## adaptive k-means with cosine distance
+install.packages("akmeans")
+library(akmeans)
+x <- gcmatrix
+k1 <- 2; k2 <- nrow(gcmatrix)
+gccl <- akmeans(gcmatrix, min.k = k1, max.k = k2, d.metric = 2) ## cosine distance based
+gccl$cluster
+gccl$centers
+gccl$size
+
+## density based
+
+# dbscan
+# install.packages("dbscan")
+library(dbscan)
+minpts = 2
+eps = .7
+gccl <- dbscan(gcmatrixNorm, eps = eps, minPts = minpts)
+gccl$cluster
+# graphical estimation with k-nearest neighbor distance
+kNNdist(gcmatrixNorm, k = minpts, search = "kd")
+kNNdistplot(gcmatrixNorm, k = 2) # the knee?
+gccl <- dbscan(gcmatrixNorm, eps = .8, minPts = minpts)
+gccl$cluster
+# 1 document clusters?
+gccl <- dbscan(gcmatrixNorm, eps = .8, minPts = 1)
+gccl$cluster
+# probe words/features
+pairs(gcmatrixNorm[,c('love','hate')], col = gccl$cluster)
+pairs(gcmatrixNorm[,c('love','hate')], panel = function(x,y) text(x,y, labels = rownames(gcmatrixNorm)))
+
+
+
+# run OPTICS
+minpts = 2
+gccl <- optics(gcmatrixNorm, eps = 1, minPts = minpts)
+gccl$order
+plot(gccl)
+### identify clusters by cutting the reachability plot (black is noise)
+gccl <- optics_cut(gccl, eps = .8)
+gccl
+plot(gccl)
+plot(gcmatrixNorm, col = gccl$cluster+1)
+
+
+
+
+###### hierarchical clustering
+library(proxy)
+
+gcdist <- dist(gcmatrix, method="cosine")# use dot product and euclid dist as length normalizer
+gchc <- hclust(gcdist, method="average")
+plot(gchc)
+
+cl <- cutree(gchc, 2) # cut tree in two paths 
+table(cl)
+findFreqTerms(gcDtm[cl==1,], 200)# path 1
+findFreqTerms(gcDtm[cl==2,], 20)# path 2# path 2
+
+

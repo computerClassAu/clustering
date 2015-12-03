@@ -6,10 +6,10 @@ setwd(wd)
 
 # packages
 library(tm)
-# if in doubt
+# % if in doubt
 help(package=tm)
 
-# build corpus
+### build corpus
 gcorpus  <- Corpus(DirSource(dd), readerControl = list(language="lat"))
 gcorpus
 names(gcorpus)# subsets: documents
@@ -55,7 +55,7 @@ gcorpusPv <- tm_map(gcorpus, PlainTextDocument)
 names(gcorpus) <- gsub("\\..*","",names(gcorpus))# match all '.' and 'any character' and replace with ''
 gcorpus[[1]][[2]][5]
 
-# dtm
+# document term matrix (Dtm)
 gcDtm <- DocumentTermMatrix(gcorpusPv)
 gcDtm
 colnames(gcDtm)
@@ -63,7 +63,6 @@ rownames(gcDtm) <- names(gcorpus)
 # reduce dimensions by removing sparse entries
 gcDtm <- removeSparseTerms(gcDtm, 0.6)# maximal sparcity = two document
 inspect(gcDtm[,"god"])
-
 
 # function for setting minimum representation of documents
 docsparse <- function(mindocs,dtm){
@@ -74,8 +73,6 @@ docsparse <- function(mindocs,dtm){
 }
 
 gcDtm <- docsparse(2,gcDtm)
-
-
 
 # frequent words and associations
 findFreqTerms(gcDtm["Matthew",], 100)
@@ -92,10 +89,8 @@ rownames(gcDtmTfidf) <- names(gcorpus)
 # remove sparse items
 gcDtmTfidf <- removeSparseTerms(gcDtmTfidf, 0.6)# maximal sparcity = two documents
 
-
-
 ########### DOCUMENT CLUSTERING
-
+# % intro
 shell.exec("https://cran.r-project.org/web/views/Cluster.html")
 
 ### partional prototype-based exclusive clustering: k-means
